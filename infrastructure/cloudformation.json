@@ -287,7 +287,8 @@
                                         "redshift:GetClusterCredentials",
                                         "redshift:ModifyCluster",
                                         "redshift:RebootCluster",
-                                        "redshift:ViewQueriesInConsole"
+                                        "redshift:ViewQueriesInConsole",
+                                        "redshift:ResizeCluster"
                                     ],
                                     "Resource": [
                                         "*"
