@@ -1,0 +1,414 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Create Your First S3 Bucket",
+    "Parameters": {
+        "Region": {
+            "Type": "String",
+            "Default": "us-west-2"
+        },
+        "InstanceType": {
+            "Type": "String",
+            "Default": "t2.micro"
+        },
+        "KeyName": {
+            "Description": "Keypair name",
+            "Type": "String",
+            "Default": "{KeyName}"
+        },
+        "AMI": {
+            "Type": "String",
+            "Default": "ami-4836a428"
+        },
+        "AMIUser": {
+            "Type": "String",
+            "Default": "ec2-user"
+        }
+    },
+    "Mappings": {
+        "SubnetConfig": {
+            "VPC": {
+                "CIDR": "10.10.10.0/24"
+            },
+            "Public": {
+                "CIDR": "10.10.10.0/24"
+            }
+        },
+        "UserConfig": {
+            "Login": {
+                "Name": "student",
+                "Pass": "password"
+            }
+        }
+    },
+    "Resources": {
+        "RedshiftLabVPC": {
+			"Type": "AWS::EC2::VPC",
+			"Properties": {
+				"CidrBlock": {
+					"Fn::FindInMap": ["SubnetConfig", "VPC", "CIDR"]
+				},
+				"Tags": [{
+					"Key": "Name",
+					"Value": {
+						"Ref": "AWS::StackName"
+					}
+				}]
+			}
+		},
+		"RedshiftLabPublicSubnet": {
+			"Type": "AWS::EC2::Subnet",
+			"Properties": {
+				"VpcId": {
+					"Ref": "RedshiftLabVPC"
+				},
+				"CidrBlock": {
+					"Fn::FindInMap": ["SubnetConfig", "Public", "CIDR"]
+				},
+				"Tags": [{
+					"Key": "Network",
+					"Value": "Public"
+				}]
+			}
+		},
+		"RedshiftLabInternetGateway": {
+			"Type": "AWS::EC2::InternetGateway"
+		},
+		"RedshiftLabInternetGatewayAttach": {
+			"Type": "AWS::EC2::VPCGatewayAttachment",
+			"Properties": {
+				"VpcId": {
+					"Ref": "RedshiftLabVPC"
+				},
+				"InternetGatewayId": {
+					"Ref": "RedshiftLabInternetGateway"
+				}
+			}
+		},
+		"RedshiftLabPublicRouteTable": {
+			"Type": "AWS::EC2::RouteTable",
+			"Properties": {
+				"VpcId": {
+					"Ref": "RedshiftLabVPC"
+				}
+			}
+		},
+		"RedshiftLabPublicRoute": {
+			"Type": "AWS::EC2::Route",
+			"Properties": {
+				"RouteTableId": {
+					"Ref": "RedshiftLabPublicRouteTable"
+				},
+				"DestinationCidrBlock": "0.0.0.0/0",
+				"GatewayId": {
+					"Ref": "RedshiftLabInternetGateway"
+				}
+			}
+		},
+		"RedshiftLabPublicRouteTableAssociation": {
+			"Type": "AWS::EC2::SubnetRouteTableAssociation",
+			"Properties": {
+				"SubnetId": {
+					"Ref": "RedshiftLabPublicSubnet"
+				},
+				"RouteTableId": {
+					"Ref": "RedshiftLabPublicRouteTable"
+				}
+			}
+		},
+		"RedshiftLabInstance": {
+			"Type": "AWS::EC2::Instance",
+			"Properties": {
+				"KeyName": {
+					"Ref": "KeyName"
+				},
+				"InstanceType": {
+					"Ref": "InstanceType"
+				},
+				"ImageId": {
+					"Ref": "AMI"
+				},
+				"Tags": [{
+					"Key": "Name",
+					"Value": {
+						"Ref": "AWS::StackName"
+					}
+				}],
+				"NetworkInterfaces": [{
+					"AssociatePublicIpAddress": "true",
+					"GroupSet": [{
+						"Ref": "RedshiftLabSecurityGroup"
+					}],
+					"SubnetId": {
+						"Ref": "RedshiftLabPublicSubnet"
+					},
+					"DeviceIndex": "0"
+				}],
+				"UserData": {
+					"Fn::Base64": {
+						"Fn::Join": [
+							"", [
+								"#!/bin/bash\n",
+								"# INSTALL POSTGRESQL\n",
+								"sudo yum install postgresql -y\n"
+							]
+						]
+					}
+				}
+			}
+		},
+		"RedshiftLabSecurityGroup": {
+			"Type": "AWS::EC2::SecurityGroup",
+			"Properties": {
+				"GroupDescription": "CARedshiftLab",
+				"VpcId": {
+					"Ref": "RedshiftLabVPC"
+				},
+				"SecurityGroupIngress": [{
+					"IpProtocol": "tcp",
+					"FromPort": "22",
+					"ToPort": "22",
+					"CidrIp": "0.0.0.0/0"
+				}, {
+					"IpProtocol": "tcp",
+					"FromPort": "80",
+					"ToPort": "80",
+					"CidrIp": "0.0.0.0/0"
+				}, {
+					"IpProtocol": "tcp",
+					"FromPort": "5439",
+					"ToPort": "5439",
+					"CidrIp": "0.0.0.0/0"
+				}],
+				"Tags": [
+					{
+						"Key": "Name",
+						"Value": "CARedshiftLab"
+					}
+				]
+			}
+		},
+		"RedshiftLabClusterSubnetGroup" : {
+		  "Type": "AWS::Redshift::ClusterSubnetGroup",
+		  "Properties": {
+			"Description" : "ClusterSubnetGroup",
+			"SubnetIds" : [
+				{
+					"Ref": "RedshiftLabPublicSubnet"
+				}
+			]
+		  }
+		},
+		"caredshiftlab": {
+			"Type": "AWS::IAM::Role",
+			"Properties": {
+				"AssumeRolePolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [
+						{
+							"Effect": "Allow",
+							"Principal": {
+								"Service": [
+									"redshift.amazonaws.com"
+								]
+							},
+							"Action": [
+								"sts:AssumeRole"
+							]
+						}
+					]
+				},
+				"Path": "/",
+				"RoleName": "caredshiftlab"
+			}
+		},
+		"RolePolicy": {
+			"Type": "AWS::IAM::Policy",
+			"Properties": {
+				"PolicyName": "AmazonS3ReadOnlyAccess",
+				"PolicyDocument": {
+					"Version": "2012-10-17",
+					"Statement": [
+						{
+							"Effect": "Allow",
+							"Action": [
+								"s3:Get*",
+								"s3:List*"
+							],
+							"Resource": "*"
+						}
+					]
+				},
+				"Roles": [
+					{
+						"Ref": "caredshiftlab"
+					}
+				]
+			}
+		},
+        "Group": {
+            "Type": "AWS::IAM::Group",
+            "Properties": {
+                "GroupName": "Students",
+                "Path": "/",
+                "Policies": [
+                    {
+                        "PolicyName": "students-policy",
+                        "PolicyDocument": {
+                            "Version": "2012-10-17",
+                            "Statement": [
+                                {
+                                    "Action": [
+                                        "ec2:Describe*",
+                                        "ec2:CreateSecurityGroup",
+                                        "ec2:TerminateInstances",
+                                        "ec2:StopInstances",
+                                        "ec2:StartInstances",
+                                        "ec2:AuthorizeSecurityGroupIngress",
+                                        "ec2:AuthorizeSecurityGroupEgress"
+                                    ],
+                                    "Resource": "*",
+                                    "Effect": "Allow",
+                                    "Condition": {
+                                        "StringEquals": {
+                                            "ec2:Region": "us-west-2"
+                                        }
+                                    }
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "redshift:CancelQuerySession",
+                                        "redshift:CreateCluster",
+                                        "redshift:CreateClusterUser",
+                                        "redshift:CreateTags",
+                                        "redshift:DeleteCluster",
+                                        "redshift:DeleteClusterSnapshot",
+                                        "redshift:DescribeClusterParameterGroups",
+                                        "redshift:DescribeClusterParameters",
+                                        "redshift:DescribeClusterSecurityGroups",
+                                        "redshift:DescribeClusterSnapshots",
+                                        "redshift:DescribeClusterSubnetGroups",
+                                        "redshift:DescribeClusterVersions",
+                                        "redshift:DescribeClusters",
+                                        "redshift:DescribeDefaultClusterParameters",
+                                        "redshift:DescribeEventCategories",
+                                        "redshift:DescribeEventSubscriptions",
+                                        "redshift:DescribeEvents",
+                                        "redshift:DescribeLoggingStatus",
+                                        "redshift:DescribeOrderableClusterOptions",
+                                        "redshift:DescribeResize",
+                                        "redshift:DescribeTags",
+                                        "redshift:GetClusterCredentials",
+                                        "redshift:ModifyCluster",
+                                        "redshift:RebootCluster",
+                                        "redshift:ViewQueriesInConsole"
+                                    ],
+                                    "Resource": [
+                                        "*"
+                                    ]
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "iam:ListRoles",
+                                        "iam:GetAccountSummary",
+                                        "iam:ListAccountAliases",
+                                        "iam:ListInstanceProfiles",
+                                        "iam:ListInstanceProfilesForRole",
+                                        "iam:ListRolePolicies",
+                                        "iam:ListRoles"
+                                    ],
+                                    "Resource": [
+                                        "*"
+                                    ]
+                                },
+                                {
+                                    "Effect": "Deny",
+                                    "Action": [
+                                        "ec2:*Host*"
+                                    ],
+                                    "Resource": "*"
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "iam:GetRole",
+                                        "iam:GetRolePolicy",
+                                        "iam:ListAttachedRolePolicies",
+                                        "iam:PassRole"
+                                    ],
+                                    "Resource": [
+                                        "*"
+                                    ]
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "cloudwatch:GetMetricData",
+                                        "cloudwatch:GetMetricStatistics",
+                                        "cloudwatch:ListMetrics",
+                                        "cloudwatch:DescribeAlarms"
+                                    ],
+                                    "Resource": [
+                                        "*"
+                                    ]
+                                },
+                                {
+                                    "Effect": "Allow",
+                                    "Action": [
+                                        "iam:CreateServiceLinkedRole"
+                                    ],
+                                    "Resource": "arn:aws:iam::*:role/aws-service-role/redshift.amazonaws.com/*",
+                                    "Condition": {
+                                        "StringLike": {
+                                            "iam:AWSServiceName": "redshift.amazonaws.com"
+                                        }
+                                    }
+                                },
+                                {
+                                    "Effect": "Deny",
+                                    "Action": [
+                                        "ec2:ModifyInstanceAttribute",
+                                        "ec2:*Reserved*",
+                                        "ec2:*Spot*",
+                                        "dynamodb:*Reserved*",
+                                        "rds:*Reserved*",
+                                        "elasticache:*Reserved*",
+                                        "redshift:*Reserved*",
+                                        "aws-marketplace:*"
+                                    ],
+                                    "Resource": "*"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+        },
+        "User": {
+            "Type": "AWS::IAM::User",
+            "Properties": {
+                "LoginProfile": {
+                    "Password": {
+                        "Fn::FindInMap": [
+                            "UserConfig",
+                            "Login",
+                            "Pass"
+                        ]
+                    }
+                },
+                "Path": "/",
+                "Groups": [
+                    "Students"
+                ],
+                "UserName": {
+                    "Fn::FindInMap": [
+                        "UserConfig",
+                        "Login",
+                        "Name"
+                    ]
+                }
+            }
+        }
+    }
+}
