@@ -1,6 +1,6 @@
 {
     "AWSTemplateFormatVersion": "2010-09-09",
-    "Description": "Create Your First S3 Bucket",
+    "Description": "Redshift Introduction",
     "Parameters": {
         "Region": {
             "Type": "String",
